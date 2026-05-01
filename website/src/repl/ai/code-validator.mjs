@@ -7,26 +7,56 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 
-import { parse } from 'acorn';
-import { mini2ast } from '@strudel/mini';
+let acorn = null;
+let mini2ast = null;
+
+async function ensureDependencies() {
+  if (!acorn) {
+    try {
+      const acornModule = await import('acorn');
+      acorn = acornModule.parse;
+    } catch (e) {
+      console.warn('acorn not available, JavaScript validation disabled', e);
+    }
+  }
+  if (!mini2ast) {
+    try {
+      const miniModule = await import('@strudel/mini');
+      mini2ast = miniModule.mini2ast;
+    } catch (e) {
+      console.warn('@strudel/mini not available, mini notation validation disabled', e);
+    }
+  }
+}
 
 export function validateJavaScript(code) {
   const errors = [];
   const warnings = [];
 
-  try {
-    parse(code, {
-      ecmaVersion: 2022,
-      allowAwaitOutsideFunction: true,
-      locations: true,
-    });
-  } catch (err) {
-    errors.push({
-      type: 'syntax',
-      message: err.message,
-      line: err.loc?.line,
-      column: err.loc?.column,
-    });
+  if (acorn) {
+    try {
+      acorn(code, {
+        ecmaVersion: 2022,
+        allowAwaitOutsideFunction: true,
+        locations: true,
+      });
+    } catch (err) {
+      errors.push({
+        type: 'syntax',
+        message: err.message,
+        line: err.loc?.line,
+        column: err.loc?.column,
+      });
+    }
+  } else {
+    try {
+      new Function(code);
+    } catch (err) {
+      errors.push({
+        type: 'syntax',
+        message: `JavaScript syntax error: ${err.message}`,
+      });
+    }
   }
 
   const suspiciousPatterns = [
@@ -54,6 +84,17 @@ export function validateJavaScript(code) {
 export function validateMiniNotation(code) {
   const errors = [];
   const warnings = [];
+
+  if (!mini2ast) {
+    return {
+      isValid: true,
+      errors: [],
+      warnings: [{
+        type: 'info',
+        message: 'Mini notation validation skipped (dependencies not loaded)',
+      }],
+    };
+  }
 
   const stringPattern = /(["'`])(?:(?!\1)[^\\]|\\.)*\1/g;
   let match;
@@ -103,6 +144,11 @@ export function validateStrudelCode(code) {
     jsValidation,
     miniValidation,
   };
+}
+
+export async function validateStrudelCodeAsync(code) {
+  await ensureDependencies();
+  return validateStrudelCode(code);
 }
 
 export function formatValidationErrors(validation) {
@@ -163,7 +209,7 @@ export function extractCodeFromMarkdown(text) {
 export function cleanGeneratedCode(code) {
   let cleaned = code;
 
-  cleaned = cleaned.replace(/^Here['’]?s (?:the )?code:?\s*/i, '');
+  cleaned = cleaned.replace(/^Here['']?s (?:the )?code:?\s*/i, '');
   cleaned = cleaned.replace(/^Sure[,.!]?\s*/i, '');
   cleaned = cleaned.replace(/^Certainly[,.!]?\s*/i, '');
   cleaned = cleaned.replace(/^Let me (?:create|write|generate)[^:]*:\s*/i, '');
@@ -192,4 +238,9 @@ export function validateAndCleanCode(code) {
     code: cleaned,
     validation,
   };
+}
+
+export async function validateAndCleanCodeAsync(code) {
+  await ensureDependencies();
+  return validateAndCleanCode(code);
 }

@@ -17,9 +17,10 @@ import {
   getConfigStatus,
   generateCode,
   modifyCode,
-} from '../ai/index.mjs';
-import { useSettings, settingsMap } from '@src/repl/settings.mjs';
-import { formatValidationErrors, formatSecurityIssues } from '../ai/index.mjs';
+  formatValidationErrors,
+  formatSecurityIssues,
+} from '../../../repl/ai/index.mjs';
+import { useSettings, settingsMap } from '@src/settings.mjs';
 
 const inputClass =
   'bg-background text-xs h-8 border border-box rounded-0 text-foreground border-muted placeholder-muted focus:outline-none focus:ring-0 focus:border-foreground';
