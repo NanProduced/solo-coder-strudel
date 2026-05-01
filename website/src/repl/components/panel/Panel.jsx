@@ -1,7 +1,7 @@
-import { Bars3Icon, PlayIcon, StopIcon, XMarkIcon } from '@heroicons/react/16/solid';
+import { Bars3Icon, PlayIcon, StopIcon, XMarkIcon, ArrowsPointingOutIcon, ArrowPathIcon } from '@heroicons/react/16/solid';
 import cx from '@src/cx.mjs';
 import { StrudelIcon } from '@src/repl/components/icons/StrudelIcon';
-import { useSettings, setIsZen, setIsPanelOpened, setActiveFooter as setTab } from '../../../settings.mjs';
+import { useSettings, setIsZen, setIsPanelOpened, setActiveFooter as setTab, supportedLanguages, setLanguage, useI18n } from '../../../settings.mjs';
 import '../../Repl.css';
 import { useLogger } from '../useLogger';
 import { ConsoleTab } from './ConsoleTab';
@@ -12,11 +12,120 @@ import { Reference } from './Reference';
 import { SettingsTab } from './SettingsTab';
 import { SoundsTab } from './SoundsTab';
 import { WelcomeTab } from './WelcomeTab';
+import useFrame from '../../../useFrame.mjs';
+import { useState, useEffect, useRef } from 'react';
 
 const TAURI = typeof window !== 'undefined' && window.__TAURI__;
 
 const { BASE_URL } = import.meta.env;
 const baseNoTrailing = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
+
+function CycleProgressBar({ context }) {
+  const { editorRef, started } = context;
+  const [cycleProgress, setCycleProgress] = useState(0);
+  const [cps, setCps] = useState(0.5);
+  const [currentCycle, setCurrentCycle] = useState(0);
+  const { lang, t } = useI18n();
+
+  const updateProgress = () => {
+    if (!started || !editorRef?.current?.repl?.scheduler) {
+      setCycleProgress(0);
+      return;
+    }
+
+    const scheduler = editorRef.current.repl.scheduler;
+    const currentCps = scheduler.cps || 0.5;
+    setCps(currentCps);
+
+    const cycleTime = scheduler.now();
+    setCurrentCycle(Math.floor(cycleTime));
+    const progress = cycleTime - Math.floor(cycleTime);
+    setCycleProgress(progress % 1);
+  };
+
+  useFrame(updateProgress, started);
+
+  useEffect(() => {
+    if (!started) {
+      setCycleProgress(0);
+    }
+  }, [started]);
+
+  const cycleLabel = t('controls.cycle') || 'Cycle';
+
+  return (
+    <div className="flex items-center gap-2 px-2">
+      <div className="flex flex-col items-start">
+        <span className="text-xs text-foreground/60">{cycleLabel}</span>
+        <span className="text-xs text-foreground/80 font-mono">
+          {started ? `${currentCycle} (${cps.toFixed(2)} cps)` : '--'}
+        </span>
+      </div>
+      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden relative">
+        <div
+          className="h-full bg-blue-500 transition-all duration-75"
+          style={{ width: `${cycleProgress * 100}%` }}
+        />
+        {started && (
+          <div
+            className="absolute top-0 h-full w-1 bg-white shadow-lg"
+            style={{ left: `${cycleProgress * 100}%`, transform: 'translateX(-50%)' }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LanguageButton() {
+  const { lang, t } = useI18n();
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const languageLabel = t('settings.language') || 'Language';
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1 px-2 text-sm text-foreground hover:opacity-70 transition-opacity"
+        title={languageLabel}
+      >
+        <span className="uppercase font-medium">{lang}</span>
+      </button>
+      {isOpen && (
+        <div className="absolute top-full right-0 mt-1 bg-background border border-muted rounded-lg shadow-lg z-50 min-w-32">
+          {Object.entries(supportedLanguages).map(([code, name]) => (
+            <button
+              key={code}
+              onClick={() => {
+                setLanguage(code);
+                setIsOpen(false);
+              }}
+              className={cx(
+                'w-full px-3 py-2 text-left text-sm hover:bg-lineHighlight transition-colors',
+                lang === code ? 'text-blue-500 font-medium' : 'text-foreground',
+              )}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function LogoButton({ context, isEmbedded }) {
   const { started } = context;
@@ -124,43 +233,77 @@ export function Footer({ context, isEmbedded = false }) {
 function MainMenu({ context, isEmbedded = false, className }) {
   const { started, pending, isDirty, activeCode, handleTogglePlay, handleEvaluate, handleShare } = context;
   const { isCSSAnimationDisabled } = useSettings();
+  const { t } = useI18n();
+
+  const playLabel = t('controls.play') || 'Play';
+  const stopLabel = t('controls.stop') || 'Stop';
+  const updateLabel = t('controls.update') || 'Update';
+  const shareLabel = t('controls.share') || 'Share';
+  const learnLabel = t('controls.learn') || 'Learn';
+
   return (
-    <div className={cx('flex text-sm max-w-full shrink-0 overflow-hidden text-foreground px-2 h-10', className)}>
+    <div className={cx('flex items-center text-sm max-w-full shrink-0 overflow-hidden text-foreground px-2 h-10 gap-1', className)}>
       <button
         onClick={handleTogglePlay}
-        title={started ? 'stop' : 'play'}
-        className={cx('px-2 hover:opacity-50', !started && !isCSSAnimationDisabled && 'animate-pulse')}
+        title={started ? stopLabel : playLabel}
+        className={cx(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all',
+          started
+            ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
+            : 'bg-green-500/15 text-green-400 hover:bg-green-500/25',
+          !started && !isCSSAnimationDisabled && 'animate-pulse',
+        )}
       >
-        <span className={cx('flex items-center space-x-2')}>
-          {started ? <StopIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5" />}
-          {!isEmbedded && <span>{pending ? '...' : started ? 'stop' : 'play'}</span>}
-        </span>
+        {started ? <StopIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5" />}
+        <span className="font-medium">{pending ? '...' : started ? stopLabel : playLabel}</span>
       </button>
+
       <button
         onClick={handleEvaluate}
-        title="update"
-        className={cx('flex items-center space-x-1 px-2', !isDirty || !activeCode ? 'opacity-50' : 'hover:opacity-50')}
+        title={updateLabel}
+        className={cx(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all',
+          !isDirty || !activeCode
+            ? 'opacity-40 cursor-not-allowed'
+            : 'bg-foreground/10 text-foreground hover:bg-foreground/20',
+        )}
+        disabled={!isDirty || !activeCode}
       >
-        {!isEmbedded && <span>update</span>}
+        <ArrowPathIcon className="w-5 h-5" />
+        <span className="font-medium">{updateLabel}</span>
       </button>
+
       {!isEmbedded && (
         <button
-          title="share"
-          className={cx('cursor-pointer hover:opacity-50 flex items-center space-x-1 px-2')}
+          title={shareLabel}
+          className={cx(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all',
+            'bg-foreground/10 text-foreground hover:bg-foreground/20',
+          )}
           onClick={handleShare}
         >
-          <span>share</span>
+          <ArrowsPointingOutIcon className="w-5 h-5" />
+          <span className="font-medium">{shareLabel}</span>
         </button>
       )}
+
       {!isEmbedded && (
         <a
-          title="learn"
+          title={learnLabel}
           href={`${baseNoTrailing}/workshop/getting-started/`}
-          className={cx('hover:opacity-50 flex items-center space-x-1', !isEmbedded ? 'p-2' : 'px-2')}
+          className={cx(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all',
+            'bg-foreground/10 text-foreground hover:bg-foreground/20',
+          )}
         >
-          <span>learn</span>
+          <span className="font-medium">{learnLabel}</span>
         </a>
       )}
+
+      {!isEmbedded && <div className="w-px h-6 bg-muted mx-1" />}
+      {!isEmbedded && <CycleProgressBar context={context} />}
+      {!isEmbedded && <div className="w-px h-6 bg-muted mx-1" />}
+      {!isEmbedded && <LanguageButton />}
     </div>
   );
 }

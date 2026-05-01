@@ -1,4 +1,4 @@
-import { defaultSettings, settingsMap, useSettings, storePrebakeScript, setSettingsTab } from '../../../settings.mjs';
+import { defaultSettings, settingsMap, useSettings, storePrebakeScript, setSettingsTab, supportedLanguages, setLanguage } from '../../../settings.mjs';
 import { themes } from '@strudel/codemirror';
 import { PrebakeCodeMirror } from '../../../repl/prebakeCodeMirror.mjs';
 import { confirmAndReloadPage, isUdels } from '../../util.mjs';
@@ -148,6 +148,7 @@ function MainSettingsContent({ started }) {
     isMultiCursorEnabled,
     patternAutoStart,
     isBlockBasedEvalEnabled,
+    language,
   } = useSettings();
   const shouldAlwaysSync = isUdels();
   const canChangeAudioDevice = AudioContext.prototype.setSinkId != null;
@@ -211,6 +212,9 @@ function MainSettingsContent({ started }) {
       </FormItem>
       <FormItem label="Theme">
         <SelectInput options={themeOptions} value={theme} onChange={(theme) => settingsMap.setKey('theme', theme)} />
+      </FormItem>
+      <FormItem label="Language">
+        <SelectInput options={supportedLanguages} value={language} onChange={(lang) => setLanguage(lang)} />
       </FormItem>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormItem label="Font Family">
