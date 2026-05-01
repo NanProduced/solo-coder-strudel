@@ -27,6 +27,14 @@ export const translations = {
       showHint: 'Show Hint',
       playPattern: 'Play',
       stopPattern: 'Stop',
+      close: 'Close',
+      errors: {
+        pleaseEnterAnswer: 'Please enter your answer',
+        syntaxError: 'Syntax error in mini notation',
+      },
+      example: 'Example',
+      task: 'Task',
+      hint: 'Hint',
     },
     lessons: {
       lesson1: {
@@ -166,6 +174,14 @@ export const translations = {
       showHint: '显示提示',
       playPattern: '播放',
       stopPattern: '停止',
+      close: '关闭',
+      errors: {
+        pleaseEnterAnswer: '请输入你的答案',
+        syntaxError: '迷你记谱法语法错误',
+      },
+      example: '示例',
+      task: '任务',
+      hint: '提示',
     },
     lessons: {
       lesson1: {
@@ -305,6 +321,14 @@ export const translations = {
       showHint: 'Hinweis anzeigen',
       playPattern: 'Abspielen',
       stopPattern: 'Stoppen',
+      close: 'Schließen',
+      errors: {
+        pleaseEnterAnswer: 'Bitte gib deine Antwort ein',
+        syntaxError: 'Syntaxfehler in der Mini-Notation',
+      },
+      example: 'Beispiel',
+      task: 'Aufgabe',
+      hint: 'Hinweis',
     },
     lessons: {
       lesson1: {

@@ -4,59 +4,24 @@ import cx from '@src/cx.mjs';
 import { useSettings, setTutorialProgress, supportedLanguages, setLanguage } from '../../settings.mjs';
 import { validateAnswer, buildLessonPattern, getSyntaxElements } from '@src/i18n/ast-validator.mjs';
 import { t, translations } from '@src/i18n/translations.mjs';
-import { drawMiniNotation } from '@src/i18n/mini-notation-highlighter.mjs';
+import { TutorialCodeEditor, CodeWithHighlight, SyntaxLegend, COLOR_MAP } from '@src/repl/components/TutorialCodeEditor';
+import { renderMiniNotationHTML } from '@src/i18n/mini-notation-highlighter.mjs';
 
 const TOTAL_LESSONS = 6;
-
-const COLOR_MAP = {
-  note: '#60a5fa',
-  group: '#34d399',
-  fast: '#fbbf24',
-  slowcat: '#a78bfa',
-  stack: '#f472b6',
-  sequence: '#94a3b8',
-  number: '#c084fc',
-  operator: '#64748b',
-};
-
-function SyntaxLegend({ language }) {
-  const i18n = (key) => t(language, key);
-  
-  const items = [
-    { type: 'note', label: 'miniNotation.terms.note', color: COLOR_MAP.note },
-    { type: 'group', label: 'miniNotation.terms.group', color: COLOR_MAP.group },
-    { type: 'fast', label: 'miniNotation.terms.fast', color: COLOR_MAP.fast },
-    { type: 'slowcat', label: 'miniNotation.terms.slowcat', color: COLOR_MAP.slowcat },
-    { type: 'stack', label: 'miniNotation.terms.stack', color: COLOR_MAP.stack },
-  ];
-
-  return (
-    <div className="flex flex-wrap gap-3 p-3 bg-lineHighlight/50 rounded-lg">
-      {items.map((item) => (
-        <div key={item.type} className="flex items-center gap-1.5">
-          <span 
-            className="w-3 h-3 rounded-sm" 
-            style={{ backgroundColor: item.color }} 
-          />
-          <span className="text-xs text-foreground/70">{i18n(item.label)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function TutorialOverlay({ context, currentLesson, onLessonChange, onFinish, onClose }) {
   const settings = useSettings();
   const { fontFamily, language, tutorialProgress = 0 } = settings;
   
-  const [userCode, setUserCode] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [checkResult, setCheckResult] = useState(null);
   const [showHint, setShowHint] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState(language || 'en');
-  const [syntaxElements, setSyntaxElements] = useState([]);
+  const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+  const [currentUserCode, setCurrentUserCode] = useState('');
   
-  const codeInputRef = useRef(null);
+  const editorRef = useRef(null);
+  const dropdownRef = useRef(null);
   
   const i18n = (key, params = {}) => t(selectedLanguage, key, params);
   
@@ -65,21 +30,15 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
   
   useEffect(() => {
     if (lessonData?.placeholder) {
-      setUserCode(lessonData.placeholder);
+      setCurrentUserCode(lessonData.placeholder);
+      setTimeout(() => {
+        editorRef.current?.setCode?.(lessonData.placeholder);
+      }, 50);
     }
     setCheckResult(null);
     setShowHint(false);
     setIsPlaying(false);
   }, [currentLesson, selectedLanguage]);
-
-  useEffect(() => {
-    if (userCode) {
-      const elements = getSyntaxElements(userCode);
-      setSyntaxElements(elements);
-    } else {
-      setSyntaxElements([]);
-    }
-  }, [userCode]);
 
   useEffect(() => {
     if (checkResult?.valid && currentLesson >= tutorialProgress) {
@@ -88,6 +47,17 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
   }, [checkResult, currentLesson, tutorialProgress]);
   
   useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowLanguageDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (isPlaying && context?.handleStop) {
         context.handleStop();
@@ -95,6 +65,11 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
     };
   }, [isPlaying, context]);
   
+  const handleCodeChange = (code) => {
+    setCurrentUserCode(code);
+    setCheckResult(null);
+  };
+
   const handlePlay = async () => {
     if (!context) return;
     
@@ -102,7 +77,8 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
       context.handleStop?.();
       setIsPlaying(false);
     } else {
-      const patternCode = buildLessonPattern(userCode, lessonKey);
+      const codeToPlay = editorRef.current?.getCode?.() || currentUserCode || lessonData?.placeholder || '';
+      const patternCode = buildLessonPattern(codeToPlay, lessonKey);
       context.editorRef?.current?.setCode?.(patternCode);
       setTimeout(() => {
         context.handleEvaluate?.();
@@ -125,12 +101,17 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
   }, [context?.started, isPlaying]);
   
   const handleCheckAnswer = () => {
-    if (!lessonData || !userCode.trim()) {
-      setCheckResult({ valid: false, error: 'Please enter your answer' });
+    const codeToCheck = editorRef.current?.getCode?.() || currentUserCode;
+    
+    if (!codeToCheck?.trim()) {
+      setCheckResult({ 
+        valid: false, 
+        error: i18n('tutorial.errors.pleaseEnterAnswer') 
+      });
       return;
     }
     
-    const result = validateAnswer(userCode, lessonData.verifySyntax);
+    const result = validateAnswer(codeToCheck, lessonData.verifySyntax);
     setCheckResult(result);
   };
   
@@ -157,22 +138,20 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
   const handleLanguageChange = (lang) => {
     setSelectedLanguage(lang);
     setLanguage(lang);
+    setShowLanguageDropdown(false);
   };
   
   const progressPercent = ((currentLesson + 1) / TOTAL_LESSONS) * 100;
   const isLastLesson = currentLesson === TOTAL_LESSONS - 1;
   const canProceed = checkResult?.valid === true;
 
-  const renderCodeWithHighlighting = () => {
-    if (!userCode) return userCode;
-    return drawMiniNotation(userCode, 'html');
-  };
+  const exampleCode = lessonData?.example || '';
   
   return (
     <div className="fixed inset-0 z-[200] flex">
       <div className="flex-1" />
       
-      <div className="w-[480px] flex flex-col bg-background border-l border-muted shadow-2xl">
+      <div className="w-[520px] flex flex-col bg-background border-l border-muted shadow-2xl">
         <div className="flex-none border-b border-muted bg-lineHighlight px-4 py-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
@@ -184,23 +163,39 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
               </span>
             </div>
             
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedLanguage}
-                onChange={(e) => handleLanguageChange(e.target.value)}
-                className="px-2 py-1 text-xs rounded bg-background border border-muted text-foreground focus:outline-none"
-              >
-                {Object.entries(supportedLanguages).map(([code, name]) => (
-                  <option key={code} value={code}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2" ref={dropdownRef}>
+              <div className="relative">
+                <button
+                  onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs rounded bg-background border border-muted text-foreground hover:bg-lineHighlight transition-colors"
+                >
+                  <span className="uppercase font-medium">{selectedLanguage}</span>
+                </button>
+                
+                {showLanguageDropdown && (
+                  <div className="absolute top-full right-0 mt-1 bg-background border border-muted rounded-lg shadow-xl z-[300] min-w-32 overflow-hidden">
+                    {Object.entries(supportedLanguages).map(([code, name]) => (
+                      <button
+                        key={code}
+                        onClick={() => handleLanguageChange(code)}
+                        className={cx(
+                          'w-full px-3 py-2 text-left text-sm hover:bg-lineHighlight transition-colors',
+                          selectedLanguage === code 
+                            ? 'text-blue-500 font-medium bg-blue-500/10' 
+                            : 'text-foreground'
+                        )}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               
               <button
                 onClick={onClose}
                 className="p-1.5 text-foreground/50 hover:text-foreground hover:bg-lineHighlight rounded transition-colors"
-                title={i18n('controls.settings')}
+                title={i18n('tutorial.close')}
               >
                 <XMarkIcon className="w-5 h-5" />
               </button>
@@ -226,11 +221,10 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
               </p>
               
               <div className="p-3 rounded-lg bg-lineHighlight border border-muted mb-3">
-                <p className="text-xs text-foreground/60 mb-1">{i18n('miniNotation.terms.sequence')}:</p>
-                <code 
-                  className="text-sm font-mono"
-                  dangerouslySetInnerHTML={{ __html: renderCodeWithHighlighting.call({ userCode: lessonData?.example || '' }) }}
-                />
+                <p className="text-xs text-foreground/60 mb-2">{i18n('tutorial.example')}:</p>
+                {exampleCode && (
+                  <CodeWithHighlight code={exampleCode} />
+                )}
               </div>
               
               <p className="text-foreground/70 text-sm">
@@ -239,7 +233,7 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
             </div>
             
             <div className="mb-3">
-              <SyntaxLegend language={selectedLanguage} />
+              <SyntaxLegend language={selectedLanguage} t={i18n} />
             </div>
             
             <div className="border border-muted rounded-xl overflow-hidden mb-4">
@@ -268,76 +262,36 @@ export function TutorialOverlay({ context, currentLesson, onLessonChange, onFini
                   </div>
                 )}
                 
-                <div className="relative">
-                  <input
-                    ref={codeInputRef}
-                    type="text"
-                    value={userCode}
-                    onChange={(e) => {
-                      setUserCode(e.target.value);
-                      setCheckResult(null);
-                    }}
-                    placeholder={lessonData?.placeholder}
-                    className="w-full px-3 py-2.5 rounded-lg bg-background border border-muted text-foreground font-mono text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    style={{ fontFamily }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleCheckAnswer();
-                      }
-                    }}
-                  />
-                  {userCode && (
-                    <div className="absolute inset-0 px-3 py-2.5 pointer-events-none overflow-hidden">
-                      <span 
-                        className="font-mono text-base whitespace-pre"
-                        style={{ fontFamily, color: 'transparent' }}
-                      >
-                        {userCode}
-                      </span>
-                      <div className="absolute bottom-1 left-3 right-3 h-0.5 overflow-hidden">
-                        {syntaxElements.map((elem, idx) => {
-                          const color = COLOR_MAP[elem.type] || COLOR_MAP.note;
-                          const charWidth = 8.4;
-                          const left = elem.start * charWidth;
-                          const width = Math.max((elem.end - elem.start) * charWidth, charWidth * 0.5);
-                          
-                          return (
-                            <div
-                              key={idx}
-                              className="absolute h-0.5 rounded-full opacity-80"
-                              style={{
-                                left: `${left}px`,
-                                width: `${width}px`,
-                                backgroundColor: color,
-                                boxShadow: `0 0 6px ${color}`,
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <TutorialCodeEditor
+                  ref={editorRef}
+                  initialCode={currentUserCode || lessonData?.placeholder || ''}
+                  onChange={handleCodeChange}
+                  theme="strudelTheme"
+                  fontSize={16}
+                  className="mb-0"
+                />
                 
-                {syntaxElements.length > 0 && (
+                {currentUserCode && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {syntaxElements.map((elem, idx) => {
-                      const color = COLOR_MAP[elem.type] || COLOR_MAP.note;
-                      const label = i18n(`miniNotation.terms.${elem.type}`) || elem.type;
-                      return (
-                        <span 
-                          key={idx}
-                          className="text-xs px-1.5 py-0.5 rounded"
-                          style={{ 
-                            backgroundColor: `${color}20`,
-                            color: color,
-                            borderLeft: `2px solid ${color}`
-                          }}
-                        >
-                          {elem.text} → {label}
-                        </span>
-                      );
-                    })}
+                    {getSyntaxElements(currentUserCode)
+                      .filter(e => e.type !== 'sequence' && e.type !== 'operator')
+                      .map((elem, idx) => {
+                        const color = COLOR_MAP[elem.type] || COLOR_MAP.note;
+                        const label = i18n(`miniNotation.terms.${elem.type}`) || elem.type;
+                        return (
+                          <span 
+                            key={idx}
+                            className="text-xs px-1.5 py-0.5 rounded"
+                            style={{ 
+                              backgroundColor: `${color}20`,
+                              color: color,
+                              borderLeft: `2px solid ${color}`
+                            }}
+                          >
+                            {elem.text} → {label}
+                          </span>
+                        );
+                      })}
                   </div>
                 )}
               </div>
@@ -447,6 +401,7 @@ export function TutorialCompletion({ onRestart, onClose }) {
         <button
           onClick={onClose}
           className="absolute top-3 right-3 p-1.5 text-foreground/40 hover:text-foreground hover:bg-lineHighlight rounded transition-colors"
+          aria-label={i18n('tutorial.close')}
         >
           <XMarkIcon className="w-5 h-5" />
         </button>
