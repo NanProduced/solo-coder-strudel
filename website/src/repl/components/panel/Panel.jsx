@@ -12,6 +12,7 @@ import { Reference } from './Reference';
 import { SettingsTab } from './SettingsTab';
 import { SoundsTab } from './SoundsTab';
 import { WelcomeTab } from './WelcomeTab';
+import { AIPanel } from './AIPanel';
 
 const TAURI = typeof window !== 'undefined' && window.__TAURI__;
 
@@ -237,6 +238,7 @@ const tabNames = {
   export: 'export',
   console: 'console',
   settings: 'settings',
+  ai: 'ai',
 };
 if (TAURI) {
   tabNames.files = 'files';
@@ -277,6 +279,8 @@ function PanelContent({ context, tab }) {
       return <SettingsTab started={context.started} />;
     case tabNames.files:
       return <FilesTab />;
+    case tabNames.ai:
+      return <AIPanel context={context} />;
     default:
       return <WelcomeTab context={context} />;
   }
