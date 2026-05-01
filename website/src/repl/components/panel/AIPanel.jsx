@@ -347,18 +347,18 @@ function ChatPanel({ context }) {
   }, [isLoading]);
 
   const handleInsert = (code) => {
-    if (context?.setActiveCode) {
-      context.setActiveCode(code);
+    if (context?.editorRef?.current?.setCode) {
+      context.editorRef.current.setCode(code);
     }
   };
 
   const handlePlay = (code) => {
-    if (context?.setActiveCode && context?.handleTogglePlay) {
-      context.setActiveCode(code);
-      if (!context.started) {
-        context.handleTogglePlay();
-      } else {
+    if (context?.editorRef?.current?.setCode) {
+      context.editorRef.current.setCode(code);
+      if (context.started) {
         context.handleEvaluate();
+      } else {
+        context.handleTogglePlay();
       }
     }
   };

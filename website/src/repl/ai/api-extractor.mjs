@@ -7,323 +7,388 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 */
 
-const JSDOC_PATTERN = /\/\*\*([\s\S]*?)\*\/\s*(export\s+)?(const|let|var|function|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-
-function parseJSDoc(comment) {
-  const result = {
-    description: '',
-    tags: [],
-    params: [],
-    returns: null,
-    examples: [],
-    synonyms: [],
-  };
-
-  const lines = comment.split('\n').map((l) => l.replace(/^\s*\*\s?/, '').trim());
-  
-  let currentTag = null;
-  let currentValue = '';
-
-  for (const line of lines) {
-    if (!line) continue;
-
-    const tagMatch = line.match(/^@(\w+)(?:\s+(.*))?$/);
-    if (tagMatch) {
-      if (currentTag) {
-        processTag(result, currentTag, currentValue.trim());
-      }
-      currentTag = tagMatch[1];
-      currentValue = tagMatch[2] || '';
-    } else if (currentTag) {
-      currentValue += ' ' + line;
-    } else {
-      result.description += (result.description ? ' ' : '') + line;
-    }
-  }
-
-  if (currentTag) {
-    processTag(result, currentTag, currentValue.trim());
-  }
-
-  return result;
-}
-
-function processTag(result, tag, value) {
-  switch (tag) {
-    case 'name':
-      result.name = value;
-      break;
-    case 'tags':
-      result.tags = value.split(/\s*,\s*/);
-      break;
-    case 'param':
-      const paramMatch = value.match(/^\{([^}]+)\}\s+(\w+)(?:\s+(.*))?$/);
-      if (paramMatch) {
-        result.params.push({
-          type: paramMatch[1],
-          name: paramMatch[2],
-          description: paramMatch[3] || '',
-        });
-      }
-      break;
-    case 'synonyms':
-    case 'alias':
-      result.synonyms = value.split(/\s*,\s*/);
-      break;
-    case 'example':
-      result.examples.push(value);
-      break;
-    case 'returns':
-    case 'return':
-      result.returns = value;
-      break;
-    case 'description':
-      if (!result.description) {
-        result.description = value;
-      }
-      break;
-  }
-}
-
-export function extractAPIFromSource(source) {
-  const functions = [];
-  const constants = [];
-  const classes = [];
-
-  let match;
-  JSDOC_PATTERN.lastIndex = 0;
-
-  while ((match = JSDOC_PATTERN.exec(source)) !== null) {
-    const comment = match[1];
-    const type = match[3];
-    const name = match[4];
-
-    const doc = parseJSDoc(comment);
-    doc.name = doc.name || name;
-
-    if (type === 'function') {
-      functions.push(doc);
-    } else if (type === 'class') {
-      classes.push(doc);
-    } else {
-      constants.push(doc);
-    }
-  }
-
-  const methodPattern = /\/\*\*([\s\S]*?)\*\/\s*(?:static\s+)?(\w+)\s*\([^)]*\)\s*\{/g;
-  methodPattern.lastIndex = 0;
-  const methods = [];
-
-  while ((match = methodPattern.exec(source)) !== null) {
-    const comment = match[1];
-    const name = match[2];
-
-    if (name.startsWith('_')) continue;
-
-    const doc = parseJSDoc(comment);
-    doc.name = doc.name || name;
-    
-    if (doc.description || doc.tags.length > 0 || doc.examples.length > 0) {
-      methods.push(doc);
-    }
-  }
-
-  return { functions, constants, classes, methods };
-}
+import jsdocJson from '../../../../doc.json';
 
 const CONTROLS_CATEGORIES = {
-  sound: ['s', 'sound', 'n', 'bank', 'samples', 'loadSample', 'loadOrc'],
-  rhythm: ['fast', 'slow', 'early', 'late', 'every', 'sometimes', 'often', 'rarely', 'always', 'never'],
-  pattern: ['stack', 'seq', 'sequence', 'cat', 'fastcat', 'slowcat', 'polymeter', 'polyrhythm', 'pr', 'pm'],
-  effects: ['gain', 'velocity', 'amp', 'cutoff', 'lpf', 'resonance', 'lpq', 'hpf', 'bpf', 'reverb', 'room', 'delay', 'pan', 'chorus'],
-  envelope: ['attack', 'decay', 'sustain', 'release', 'lpa', 'lpd', 'lps', 'lpr'],
-  filters: ['lpf', 'hpf', 'bpf', 'lpq', 'resonance', 'cutoff'],
-  modulation: ['fm', 'fmi', 'fmh', 'tremolo', 'phaser'],
-  timing: ['setcps', 'setcpm', 'setcps', 'setcpm', 'cps'],
-  structure: ['mask', 'struct', 'reset', 'restart', 'euclid', 'euclidRot', 'bjorklund'],
-  transformation: ['add', 'sub', 'mul', 'div', 'mod', 'rev', 'jux'],
-  notes: ['note', 'scale', 'chord', 'arp', 'transpose', 'degree'],
-  visualization: ['pianoroll', 'scope', 'spiral', 'punchcard', 'spectrum'],
+  samples: ['superdough', 'samples'],
+  synthesis: ['synth', 'wavetable', 'fm'],
+  effects: ['effects', 'filter', 'reverb', 'delay', 'chorus'],
+  envelope: ['envelope'],
+  rhythm: ['rhythm', 'euclid', 'pattern'],
+  visualization: ['visualization', 'pianoroll'],
 };
 
-const MINI_NOTATION_SYNTAX = `
-## Mini Notation Syntax (for patterns inside strings like "bd sd hh")
+function isValidDoc(doc) {
+  const isSupradoughOnly = doc.tags?.includes('supradough') && !doc.tags?.includes('superdough');
+  const isSuperdirtOnly = doc.tags?.includes('superdirt') && !doc.tags?.includes('superdough');
+  return doc.name && !doc.name.startsWith('_') && !!doc.description && !isSupradoughOnly && !isSuperdirtOnly;
+}
 
-Basic syntax:
-- Space-separated events: "bd sd hh"
-- Rest/silence: "~" or "-"
-- Grouping with brackets: "[bd sd] hh"
-- Polyrhythms with commas: "bd, sd, hh"
-- Alternatives with angle brackets: "<bd sd hh>"
-- Repetition with asterisk: "bd*4"
-- Euclidean rhythms: "bd(3,8)" (3 pulses in 8 steps)
-- Euclidean with rotation: "bd(3,8,1)"
-- Duration with @: "bd@2 sd" (bd lasts 2 units)
-- Degrade/random removal: "bd? sd" (50% chance)
-- Degrade with probability: "bd?.3 sd" (30% chance)
+function normalizeTags(tags) {
+  if (!tags) return ['untagged'];
+  return tags.filter((t) => t && typeof t === 'string');
+}
 
-Sample parameters with colon:
-- s("bd:0 bd:1") - sample index
-- s("bd:0:0.5") - sample index + gain
-- lpf("1000:10") - cutoff + resonance
+function getHtmlInnerText(html) {
+  if (!html) return '';
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-Common operators:
-- .fast(n) - speed up by n times
-- .slow(n) - slow down by n times
-- .early(n) - shift earlier by n cycles
-- .late(n) - shift later by n cycles
-- .every(n, f) - apply f every n cycles
-- .sometimes(f) - apply f 50% of the time
-- .often(f) - apply f 75% of the time
-- .rarely(f) - apply f 25% of the time
-`;
+function formatParams(params) {
+  if (!params || params.length === 0) return '';
+  return params
+    .map((p) => {
+      const type = p.type?.names?.join(' | ') || 'any';
+      const desc = p.description ? ` - ${getHtmlInnerText(p.description)}` : '';
+      return `  @param {${type}} ${p.name}${desc}`;
+    })
+    .join('\n');
+}
 
-export function generateSystemPrompt(apiDocs, examples) {
-  const { controls, pattern, mini } = apiDocs;
+function formatExamples(examples) {
+  if (!examples || examples.length === 0) return '';
+  return examples.map((ex) => `  ${ex}`).join('\n');
+}
 
-  const coreConcepts = `
-## Core Concepts
+export function extractAPIFromJSDoc() {
+  const docs = [];
+  const seen = new Set();
 
-1. **Patterns**: Everything in Strudel is a pattern. Patterns generate events over time.
-2. **Cycles**: Time is measured in cycles. A cycle is a repeating unit of time.
-3. **Mini Notation**: A concise syntax for creating patterns inside strings (e.g., "bd sd hh")
-4. **Chaining**: Methods are chained to transform patterns (e.g., s("bd").fast(2))
-5. **Stack**: Use stack() or comma in mini notation to play patterns simultaneously
-6. **Sequence**: Use seq() or space in mini notation to play patterns sequentially
+  for (const doc of jsdocJson.docs) {
+    if (!isValidDoc(doc)) continue;
+    if (seen.has(doc.name)) continue;
 
-## Common Pattern Structure
+    const normalizedDoc = {
+      name: doc.name,
+      description: getHtmlInnerText(doc.description),
+      tags: normalizeTags(doc.tags),
+      params: doc.params || [],
+      examples: doc.examples || [],
+      synonyms: doc.synonyms || [],
+      synonymsText: doc.synonyms_text || '',
+      filename: doc.meta?.filename,
+      lineno: doc.meta?.lineno,
+    };
 
-A typical Strudel pattern looks like:
+    const synonyms = doc.synonyms || [];
+    for (const s of synonyms) {
+      if (s && !seen.has(s)) {
+        seen.add(s);
+      }
+    }
 
-\`\`\`javascript
-// Basic drum pattern
-s("bd sd [~ bd] sd, hh*8")
-  .gain(0.8)
-  .fast(2)
+    docs.push(normalizedDoc);
+    seen.add(doc.name);
+  }
 
-// Stacking multiple patterns
-stack(
-  s("bd sd").color('red'),
-  note("c e g").s('piano').color('blue')
-)
+  return docs.sort((a, b) => a.name.localeCompare(b.name));
+}
 
-// Using labels for block-based evaluation
-$: s("bd sd")  // bass drum pattern
-$: note("c e g")  // melody pattern
-\`\`\`
+export function getFunctionsByFile(filename) {
+  const allDocs = extractAPIFromJSDoc();
+  return allDocs.filter((doc) => doc.filename === filename);
+}
 
-## Important Controls
-
-### Sound Selection
-- \`s("bd sd hh")\` - select sounds by name
-- \`n(0)\` - select sample index
-- \`bank("RolandTR909")\` - select sample bank
-
-### Notes and Melody
-- \`note("c4 e4 g4")\` - play specific notes
-- \`scale("C major")\` - define a scale
-- \`n("0 2 4")\` - scale degrees (0=root, 2=third, 4=fifth)
-- \`chord("Cm7")\` - play a chord
-- \`arp("0 2 4")\` - arpeggiate
-
-### Effects
-- \`gain(0.8)\` - set volume (0-1 typically)
-- \`velocity(0.5)\` - another volume control
-- \`lpf(1000)\` - low pass filter (cutoff frequency)
-- \`lpq(5)\` - filter resonance/Q
-- \`hpf(500)\` - high pass filter
-- \`delay(0.5)\` - delay effect (mix 0-1)
-- \`delaytime(0.25)\` - delay time in cycles
-- \`delayfeedback(0.5)\` - delay feedback (0-1)
-- \`room(0.5)\` - reverb amount
-- \`pan(0.5)\` - stereo panning (-1 to 1)
-- \`chorus(0.3)\` - chorus effect
-
-### Envelope
-- \`attack(0.01)\` - attack time in seconds
-- \`decay(0.1)\` - decay time in seconds
-- \`sustain(0.5)\` - sustain level (0-1)
-- \`release(0.3)\` - release time in seconds
-
-### Timing and Rhythm
-- \`fast(2)\` - play twice as fast
-- \`slow(2)\` - play half as fast
-- \`early(0.25)\` - shift earlier by 1/4 cycle
-- \`late(0.25)\` - shift later by 1/4 cycle
-- \`every(4, fast(2))\` - every 4th cycle, play twice as fast
-- \`euclid(3, 8)\` - 3 pulses in 8 steps (Euclidean rhythm)
-- \`struct("x ~ x ~")\` - apply a rhythmic structure
-
-### Pattern Combination
-- \`stack(a, b)\` - play patterns simultaneously
-- \`seq(a, b)\` - play patterns sequentially
-- \`a.set(b)\` - combine patterns (b overrides a where both have values)
-- \`a.keep(b)\` - keep values from a where b has values
-
-### Visualization
-- \`pianoroll()\` - show piano roll visualization
-- \`scope()\` - show waveform
-- \`spiral()\` - spiral visualization
-
-### Tempo
-- \`setcps(1)\` - set cycles per second
-- \`setcpm(120)\` - set cycles per minute (120 BPM if 1 cycle = 1 beat)
-`;
-
-  const exampleSection = examples.length > 0 
-    ? `\n## Relevant Examples\n\n${examples.map((ex, i) => `### Example ${i + 1}\n\`\`\`javascript\n${ex}\n\`\`\``).join('\n\n')}`
-    : '';
-
-  return `You are an expert at generating Strudel code for live coding music.
-
-Strudel is a JavaScript port of Tidal Cycles, a domain-specific language for live coding music.
-
-${coreConcepts}
-
-${MINI_NOTATION_SYNTAX}
-
-## Guidelines for Generation
-
-1. **Use mini notation** for patterns inside strings - it's more concise and idiomatic
-2. **Chain methods** using dot notation: \`s("bd").fast(2).gain(0.8)\`
-3. **Use stack()** to play multiple patterns at the same time
-4. **Use seq()** or just spaces in mini notation for sequential patterns
-5. **Add comments** explaining what different parts do
-6. **Use color()** to visually distinguish different parts in the piano roll
-7. **Keep it simple** - start with basic patterns, then add complexity
-8. **For block-based evaluation**, use labels like \`$:\` before each pattern
-
-## Important Notes
-
-- Mini notation strings use double quotes: \`"bd sd"\`
-- Pattern methods are chained with dots
-- Use \`stack()\` for simultaneous patterns
-- Use \`seq()\` or just spaces for sequential patterns
-- The last expression in the code is what will be evaluated
-
-${exampleSection}
-
-Generate only valid Strudel JavaScript code. Do not include any markdown formatting in your response, just the code. Add comments explaining the pattern.`;
+export function getFunctionsByTags(tags) {
+  const allDocs = extractAPIFromJSDoc();
+  const tagSet = new Set(tags);
+  return allDocs.filter((doc) => doc.tags.some((t) => tagSet.has(t)));
 }
 
 export function getEssentialAPISummary() {
-  return {
-    controls: {
-      sound: ['s', 'n', 'bank', 'samples'],
-      notes: ['note', 'scale', 'chord', 'arp', 'transpose'],
-      effects: ['gain', 'velocity', 'lpf', 'hpf', 'bpf', 'lpq', 'resonance', 'delay', 'room', 'pan', 'chorus', 'phaser', 'tremolo'],
-      envelope: ['attack', 'decay', 'sustain', 'release'],
-      rhythm: ['fast', 'slow', 'early', 'late', 'every', 'sometimes', 'often', 'rarely', 'euclid'],
-      structure: ['stack', 'seq', 'sequence', 'cat', 'mask', 'struct', 'reset', 'restart'],
-      transformation: ['add', 'sub', 'mul', 'div', 'rev', 'jux', 'superimpose', 'layer'],
-      tempo: ['setcps', 'setcpm'],
-      visualization: ['pianoroll', 'scope', 'spiral'],
-    },
-    miniNotation: {
-      basics: ['space-separated events', '~ for silence', '[ ] for grouping', ', for polyrhythms'],
-      repetition: ['*n for repetition', '(n,k) for Euclidean rhythms', '@n for duration'],
-      alternatives: ['< > for alternatives', '? for random removal'],
-      parameters: [': for sample index/gain', ': for filter parameters'],
-    },
+  const allDocs = extractAPIFromJSDoc();
+
+  const controlsDocs = allDocs.filter((doc) => doc.filename === 'controls.mjs');
+  const patternDocs = allDocs.filter((doc) => doc.filename === 'pattern.mjs');
+
+  const highPriorityTags = [
+    'superdough',
+    'samples',
+    'synth',
+    'effects',
+    'filter',
+    'reverb',
+    'delay',
+    'envelope',
+    'pattern',
+    'euclid',
+  ];
+
+  const highPrioritySet = new Set(highPriorityTags);
+
+  const essentialDocs = allDocs.filter((doc) => doc.tags.some((t) => highPrioritySet.has(t)));
+
+  const categorized = {
+    core: [],
+    samples: [],
+    synthesis: [],
+    effects: [],
+    envelope: [],
+    pattern: [],
   };
+
+  const coreFunctions = ['s', 'note', 'n', 'gain', 'stack', 'seq', 'fast', 'slow'];
+  const coreSet = new Set(coreFunctions);
+
+  for (const doc of essentialDocs) {
+    if (coreSet.has(doc.name)) {
+      categorized.core.push(doc);
+    } else if (doc.tags.includes('samples') || doc.tags.includes('superdough')) {
+      categorized.samples.push(doc);
+    } else if (doc.tags.includes('synth') || doc.tags.includes('wavetable') || doc.tags.includes('fm')) {
+      categorized.synthesis.push(doc);
+    } else if (doc.tags.includes('effects') || doc.tags.includes('filter') || doc.tags.includes('reverb') || doc.tags.includes('delay') || doc.tags.includes('chorus')) {
+      categorized.effects.push(doc);
+    } else if (doc.tags.includes('envelope')) {
+      categorized.envelope.push(doc);
+    } else if (doc.tags.includes('pattern') || doc.tags.includes('euclid')) {
+      categorized.pattern.push(doc);
+    }
+  }
+
+  return categorized;
 }
+
+function docToMarkdown(doc) {
+  const lines = [];
+  lines.push(`### ${doc.name}`);
+  if (doc.synonymsText) {
+    lines.push(`**Synonyms:** ${doc.synonymsText}`);
+  }
+  if (doc.description) {
+    lines.push(doc.description);
+  }
+  if (doc.params && doc.params.length > 0) {
+    lines.push('**Parameters:**');
+    for (const p of doc.params) {
+      const type = p.type?.names?.join(' | ') || 'any';
+      const desc = p.description ? ` - ${getHtmlInnerText(p.description)}` : '';
+      lines.push(`- \`${p.name}\`: \`${type}\`${desc}`);
+    }
+  }
+  if (doc.examples && doc.examples.length > 0) {
+    lines.push('**Examples:**');
+    for (const ex of doc.examples) {
+      lines.push('```javascript');
+      lines.push(ex);
+      lines.push('```');
+    }
+  }
+  if (doc.tags && doc.tags.length > 0 && doc.tags[0] !== 'untagged') {
+    lines.push(`**Tags:** ${doc.tags.join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
+export function generateSystemPrompt(apiSummary, examples = []) {
+  const { core, samples, synthesis, effects, envelope, pattern } = apiSummary;
+
+  const lines = [];
+
+  lines.push(`# Strudel AI Code Generator
+
+You are an expert at generating Strudel code for live coding music. Strudel is a JavaScript port of TidalCycles for live coding music patterns.
+
+## Core Concepts
+
+- **Patterns**: Everything in Strudel is a pattern - sequences of events that repeat over time.
+- **Cycles**: Patterns repeat every cycle (by default 1 second, adjustable with setcps()).
+- **Mini Notation**: A concise string syntax for defining patterns:
+  - Space separates events: \`"bd sd"\` plays kick then snare
+  - ~ means rest: \`"bd ~ sd ~"\`
+  - [] groups events: \`"[bd sd] hh"\` plays kick+snare together, then hi-hat
+  - , creates polyrhythms: \`"bd, sd*2"\` = 1 kick vs 2 snares per cycle
+  - <> alternates: \`"<bd sd>"\` alternates kick and snare each cycle
+  - * repeats: \`"hh*4"\` = 4 hi-hats per cycle
+  - (n,k) Euclidean rhythm: \`"bd(3,8)"\` = 3 kicks over 8 steps
+  - @ duration: \`"c@2"\` = C note held for 2 cycles
+
+- **Chaining**: Methods are chained with . : \`s("bd").gain(.8).fast(2)\`
+- **Mini Notation in strings**: Most pattern functions accept mini notation strings.
+
+## Mini Notation Quick Reference
+
+\`\`\`
+"bd sd hh oh"       // 4 events: kick, snare, hi-hat, open-hat
+"bd ~ sd ~"         // kick, rest, snare, rest
+"[bd sd] hh"        // kick+snare together, then hi-hat
+"bd, sd*2"          // 1 kick, 2 snares (polyrhythm)
+"<bd sd> hh"        // kick then snare alternating, with hi-hat
+"hh*8"              // 8 hi-hats per cycle
+"bd(3,8)"           // Euclidean: 3 kicks over 8 steps
+"c@2 d"             // c lasts 2 cycles, d is normal
+\`\`\`
+
+## Label-Based Evaluation
+
+Use \`$: \` prefix to define multiple independent patterns that run simultaneously:
+
+\`\`\`javascript
+$: s("bd sd [~ bd] sd").bank('RolandTR909')
+$: note("c3 e3 g3 b3").s('sawtooth').lpf(800)
+$: s("hh*8").delay(.3)
+\`\`\`
+
+Each \`$: \` block is evaluated independently. This is the preferred way to create layered patterns in Strudel.
+
+## Important: How to Structure Your Output
+
+1. **ALWAYS use label-based evaluation** (\`$: \`) when creating multiple layers (drums + bass + melody etc.)
+2. **Each layer should be a separate \`$: \` block**
+3. **Use descriptive comments** to explain what each part does
+4. **Include comments** for parameter values (e.g., \`// lpf=800 means low-pass filter at 800Hz\`)
+
+## Essential Functions
+`);
+
+  if (core.length > 0) {
+    lines.push('\n### Core Functions\n');
+    for (const doc of core.slice(0, 10)) {
+      lines.push(docToMarkdown(doc));
+      lines.push('');
+    }
+  }
+
+  if (samples.length > 0) {
+    lines.push('\n### Sound / Sample Functions\n');
+    for (const doc of samples.slice(0, 8)) {
+      lines.push(docToMarkdown(doc));
+      lines.push('');
+    }
+  }
+
+  if (synthesis.length > 0) {
+    lines.push('\n### Synthesis Functions\n');
+    for (const doc of synthesis.slice(0, 6)) {
+      lines.push(docToMarkdown(doc));
+      lines.push('');
+    }
+  }
+
+  if (effects.length > 0) {
+    lines.push('\n### Effects\n');
+    for (const doc of effects.slice(0, 10)) {
+      lines.push(docToMarkdown(doc));
+      lines.push('');
+    }
+  }
+
+  if (envelope.length > 0) {
+    lines.push('\n### Envelope\n');
+    for (const doc of envelope.slice(0, 6)) {
+      lines.push(docToMarkdown(doc));
+      lines.push('');
+    }
+  }
+
+  if (pattern.length > 0) {
+    lines.push('\n### Pattern Manipulation\n');
+    for (const doc of pattern.slice(0, 10)) {
+      lines.push(docToMarkdown(doc));
+      lines.push('');
+    }
+  }
+
+  if (examples.length > 0) {
+    lines.push('\n## Example Patterns\n');
+    for (let i = 0; i < examples.length; i++) {
+      lines.push(`\n### Example ${i + 1}\n`);
+      lines.push('```javascript');
+      lines.push(examples[i]);
+      lines.push('```');
+    }
+  }
+
+  lines.push(`
+## Guidelines
+
+1. **Use label-based evaluation** (\`$: \`) for multi-layer patterns (drums + bass + melody)
+2. **Use mini notation** inside strings for rhythm patterns
+3. **Chain methods** with . notation
+4. **Use setcps()** at the top to set tempo (e.g., \`setcps(1.5)\` for faster)
+5. **Keep it simple** - generate only what's requested
+6. **Add comments** explaining parameter choices and sound design
+
+## When Modifying Existing Code
+
+When the user asks to modify existing code:
+
+1. **Identify the relevant parts** - find which lines relate to the request
+2. **Only modify those parts** - don't rewrite the entire pattern
+3. **Keep other parts intact** - preserve the user's original work
+4. **If modifying drums and user says "hi-hat more dense"**: only change the hi-hat pattern, leave kick/snare as is
+5. **Use label-based context** - if the original uses \`$: \`, keep each block separate
+
+## Output Format
+
+Respond with ONLY the Strudel code in a \`\`\`javascript code block. Do NOT include any explanation text outside the code block. Use comments inside the code to explain your choices.
+
+Example output format:
+\`\`\`javascript
+// Up-tempo drum and bass with swing
+setcps(1.2)
+
+$: s("bd sd [~ bd] sd").bank('RolandTR909')
+$: note("c2 f2 g2 f2").s('sawtooth').lpf(400)
+$: s("hh*8").gain(".4!2 1 .4!2 1 .4 1")
+\`\`\`
+
+Important:
+- ALWAYS use \`$: \` for each independent layer when creating multi-part patterns
+- Add descriptive comments explaining each section and parameter choices
+- Only modify relevant parts when changing existing code
+`);
+
+  return lines.join('\n');
+}
+
+export function generateModifyPrompt(originalCode, modificationRequest) {
+  return `You are modifying existing Strudel code. Read the request carefully and ONLY change the relevant parts.
+
+## Original Code
+
+\`\`\`javascript
+${originalCode}
+\`\`\`
+
+## Modification Request
+
+${modificationRequest}
+
+## Instructions
+
+1. **Identify which lines relate to the request**
+2. **ONLY change those specific parts**
+3. **Keep all other parts exactly the same**
+4. **If request is about "hi-hat more dense"**: only modify the hi-hat pattern, leave kick/snare/melody/bass unchanged
+5. **If using label-based (\`$: \`) patterns**: keep each block separate and only modify the relevant block(s)
+6. **Preserve the original structure and style**
+
+## Example
+
+If original is:
+\`\`\`javascript
+$: s("bd sd bd sd")  // drums
+$: s("hh*4")          // hi-hat
+$: note("c3")         // bass
+\`\`\`
+
+And request is "hi-hat more dense":
+
+Output should be:
+\`\`\`javascript
+$: s("bd sd bd sd")  // drums
+$: s("hh*8")          // hi-hat - doubled from 4 to 8
+$: note("c3")         // bass
+\`\`\`
+
+Notice: Only the hi-hat line changed, everything else stayed the same.
+
+Respond with ONLY the complete modified code in a \`\`\`javascript code block.
+`;
+}
+
+export { jsdocJson };
