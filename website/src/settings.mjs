@@ -2,7 +2,8 @@ import { persistentMap } from '@nanostores/persistent';
 import { useStore } from '@nanostores/react';
 import { register } from '@strudel/core';
 import { isUdels } from './repl/util.mjs';
-import { computed } from 'nanostores';
+import { computed, atom } from 'nanostores';
+import { t, defaultLanguage } from './i18n/translations.mjs';
 
 export const audioEngineTargets = {
   webaudio: 'webaudio',
@@ -56,7 +57,6 @@ export const defaultSettings = {
   soundsFilter: soundFilterType.ALL,
   referenceTag: 'all',
   patternFilter: 'community',
-  // panelPosition: window.innerWidth > 1000 ? 'right' : 'bottom', //FIX: does not work on astro
   panelPosition: 'right',
   isPanelPinned: false,
   isPanelOpen: true,
@@ -69,6 +69,9 @@ export const defaultSettings = {
   multiChannelOrbits: false,
   includePrebakeScriptInShare: true,
   settingsTab: 'settings',
+  language: defaultLanguage,
+  hasSeenWelcome: false,
+  tutorialProgress: 0,
 };
 
 let search = null;
@@ -152,3 +155,24 @@ export const fontFamily = patternSetting('fontFamily');
 export const fontSize = patternSetting('fontSize');
 
 export const settingPatterns = { theme, fontFamily, fontSize };
+
+export const setLanguage = (lang) => settingsMap.setKey('language', lang);
+export const setHasSeenWelcome = (value) => settingsMap.setKey('hasSeenWelcome', value);
+export const setTutorialProgress = (progress) => settingsMap.setKey('tutorialProgress', progress);
+
+export const supportedLanguages = {
+  en: 'English',
+  zh: '中文',
+  de: 'Deutsch',
+};
+
+export function useI18n() {
+  const settings = useSettings();
+  const lang = settings?.language || defaultLanguage;
+  
+  return {
+    lang,
+    t: (key, params = {}) => t(lang, key, params),
+    setLanguage,
+  };
+}
