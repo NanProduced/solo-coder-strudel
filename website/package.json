@@ -28,6 +28,7 @@
     "@heroicons/react": "^2.2.0",
     "@nanostores/persistent": "^0.10.2",
     "@nanostores/react": "^0.8.4",
+    "acorn": "^8.14.0",
     "@strudel/codemirror": "workspace:*",
     "@strudel/core": "workspace:*",
     "@strudel/csound": "workspace:*",
