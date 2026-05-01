@@ -177,69 +177,108 @@ export function validateAnswer(userCode, expectedSyntax) {
   };
 }
 
-export function getSyntaxElements(ast) {
-  if (!ast) return [];
+export function getSyntaxElements(code) {
+  if (!code || typeof code !== 'string') {
+    return [];
+  }
   
   const elements = [];
+  const stack = [];
+  let i = 0;
   
-  function traverse(node, parentRange = null) {
-    if (!node) return;
+  while (i < code.length) {
+    const char = code[i];
     
-    const element = {
-      type: node.type_,
-      alignment: node.arguments_?.alignment,
-      location: node.location_,
-      ops: node.options_?.ops || [],
-    };
-    
-    if (node.type_ === 'pattern') {
-      if (node.arguments_.alignment === 'stack') {
-        element.syntaxType = 'stack';
-        element.label = 'Stack';
-        elements.push(element);
-      } else if (node.arguments_.alignment === 'polymeter_slowcat') {
-        element.syntaxType = 'slowcat';
-        element.label = 'Slow Alternation';
-        elements.push(element);
-      } else if (node.source_ && node.source_.length > 1) {
-        const hasNestedPatterns = node.source_.some(child => 
-          child.type_ === 'pattern' && child.source_?.length > 1
-        );
-        if (hasNestedPatterns) {
-          element.syntaxType = 'group';
-          element.label = 'Group';
-          elements.push(element);
-        } else {
-          element.syntaxType = 'sequence';
-          element.label = 'Sequence';
-          elements.push(element);
-        }
+    if (char === '[') {
+      stack.push({ type: 'group', start: i });
+      i++;
+    } else if (char === ']') {
+      if (stack.length > 0) {
+        const group = stack.pop();
+        elements.push({
+          type: 'group',
+          text: code.slice(group.start, i + 1),
+          start: group.start,
+          end: i + 1,
+        });
       }
-    }
-    
-    if (node.options_?.ops) {
-      for (const op of node.options_.ops) {
-        if (op.type_ === 'stretch') {
-          elements.push({
-            type: 'operator',
-            syntaxType: op.arguments_.type === 'fast' ? 'fast' : 'slow',
-            amount: op.arguments_.amount,
-            label: op.arguments_.type === 'fast' ? 'Fast' : 'Slow',
-            location: node.location_,
-          });
-        }
+      i++;
+    } else if (char === '<') {
+      stack.push({ type: 'slowcat', start: i });
+      i++;
+    } else if (char === '>') {
+      if (stack.length > 0) {
+        const slowcat = stack.pop();
+        elements.push({
+          type: 'slowcat',
+          text: code.slice(slowcat.start, i + 1),
+          start: slowcat.start,
+          end: i + 1,
+        });
       }
-    }
-    
-    if (node.source_ && Array.isArray(node.source_)) {
-      for (const child of node.source_) {
-        traverse(child, node.location_);
+      i++;
+    } else if (char === ',') {
+      elements.push({
+        type: 'stack',
+        text: ',',
+        start: i,
+        end: i + 1,
+      });
+      i++;
+    } else if (char === '*') {
+      const start = i;
+      i++;
+      while (i < code.length && /\d/.test(code[i])) {
+        i++;
       }
+      elements.push({
+        type: 'fast',
+        text: code.slice(start, i),
+        start: start,
+        end: i,
+      });
+    } else if (char === ' ') {
+      elements.push({
+        type: 'sequence',
+        text: ' ',
+        start: i,
+        end: i + 1,
+      });
+      i++;
+    } else if (/[a-zA-Z]/.test(char)) {
+      const start = i;
+      while (i < code.length && /[a-zA-Z0-9]/.test(code[i])) {
+        i++;
+      }
+      const noteText = code.slice(start, i);
+      if (/^[a-gA-G][#b]?\d*$/.test(noteText) || 
+          /^[a-gA-G][#b]?$/.test(noteText) ||
+          /^[xXoO~]$/.test(noteText) ||
+          noteText === 'rest') {
+        elements.push({
+          type: 'note',
+          text: noteText,
+          start: start,
+          end: i,
+        });
+      }
+    } else if (/\d/.test(char)) {
+      const start = i;
+      while (i < code.length && /\d/.test(code[i])) {
+        i++;
+      }
+      elements.push({
+        type: 'number',
+        text: code.slice(start, i),
+        start: start,
+        end: i,
+      });
+    } else {
+      i++;
     }
   }
   
-  traverse(ast);
-  return elements;
+  return elements.sort((a, b) => a.start - b.start);
 }
 
 export const demoPatterns = {
