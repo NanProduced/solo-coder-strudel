@@ -1,3 +1,5 @@
+import { RangeSetBuilder, StateEffect, StateField, Prec } from '@codemirror/state';
+import { Decoration, EditorView } from '@codemirror/view';
 import { getSyntaxElements } from './ast-validator.mjs';
 
 export const COLOR_MAP = {
@@ -10,36 +12,118 @@ export const COLOR_MAP = {
   number: '#c084fc',
   operator: '#64748b',
   bracket: '#4ade80',
-  rest: '#6b7280',
 };
 
 export function getColorForType(type) {
   return COLOR_MAP[type] || COLOR_MAP.note;
 }
 
-export function drawMiniNotation(code, format = 'html') {
-  if (!code || typeof code !== 'string') {
-    return '';
-  }
+export const setMiniNotationHighlight = StateEffect.define();
+export const enableMiniNotationHighlight = StateEffect.define();
 
-  const elements = getSyntaxElements(code);
-  
-  if (format === 'html') {
-    return renderAsHTML(code, elements);
-  } else if (format === 'codemirror') {
-    return renderAsCodeMirrorDecorations(code, elements);
-  }
-  
-  return code;
+const miniNotationHighlightEnabled = StateField.define({
+  create() {
+    return false;
+  },
+  update(enabled, tr) {
+    for (let e of tr.effects) {
+      if (e.is(enableMiniNotationHighlight)) {
+        return e.value;
+      }
+    }
+    return enabled;
+  },
+});
+
+const miniNotationDecorations = StateField.define({
+  create() {
+    return Decoration.none;
+  },
+  update(decorations, tr) {
+    if (tr.docChanged) {
+      decorations = decorations.map(tr.changes);
+    }
+
+    for (let e of tr.effects) {
+      if (e.is(setMiniNotationHighlight)) {
+        const { code, from = 0, to = null } = e.value;
+        const actualTo = to !== null ? to : code.length;
+        const relevantCode = code.slice(from, actualTo);
+        const elements = getSyntaxElements(relevantCode);
+        
+        const builder = new RangeSetBuilder();
+        
+        for (const elem of elements) {
+          const elemFrom = from + elem.start;
+          const elemTo = from + elem.end;
+          const color = getColorForType(elem.type);
+          
+          const mark = Decoration.mark({
+            attributes: {
+              style: `text-decoration: underline; text-decoration-color: ${color}; text-decoration-thickness: 3px; text-underline-offset: 3px;`,
+              'data-syntax-type': elem.type,
+              'data-syntax-text': elem.text,
+            },
+          });
+          
+          builder.add(elemFrom, elemTo, mark);
+        }
+        
+        decorations = builder.finish();
+      }
+    }
+
+    return decorations;
+  },
+});
+
+const miniNotationHighlights = EditorView.decorations.compute(
+  [miniNotationDecorations, miniNotationHighlightEnabled],
+  (state) => {
+    const enabled = state.field(miniNotationHighlightEnabled);
+    if (!enabled) {
+      return Decoration.none;
+    }
+    return state.field(miniNotationDecorations);
+  },
+);
+
+export function updateMiniNotationHighlight(view, code, from = 0, to = null) {
+  view.dispatch({
+    effects: setMiniNotationHighlight.of({ code, from, to }),
+  });
 }
 
-function renderAsHTML(code, elements) {
-  if (!elements || elements.length === 0) {
+export function toggleMiniNotationHighlight(view, enabled) {
+  view.dispatch({
+    effects: enableMiniNotationHighlight.of(enabled),
+  });
+}
+
+export const miniNotationHighlightExtension = [
+  miniNotationHighlightEnabled,
+  miniNotationDecorations,
+  Prec.highest(miniNotationHighlights),
+];
+
+export function isMiniNotationHighlightEnabled(state) {
+  return state.field(miniNotationHighlightEnabled);
+}
+
+export function getMiniNotationDecorations(state) {
+  return state.field(miniNotationDecorations);
+}
+
+export function renderMiniNotationHTML(code) {
+  if (!code) return '';
+  
+  const elements = getSyntaxElements(code);
+  
+  if (elements.length === 0) {
     return escapeHtml(code);
   }
-
-  const sortedElements = [...elements].sort((a, b) => a.start - b.start);
   
+  const sortedElements = [...elements].sort((a, b) => a.start - b.start);
   const mergedElements = mergeOverlappingElements(sortedElements);
   
   let result = '';
@@ -54,7 +138,7 @@ function renderAsHTML(code, elements) {
     const text = code.slice(elem.start, elem.end);
     const escapedText = escapeHtml(text);
     
-    result += `<span style="color: ${color}; text-decoration: underline; text-decoration-color: ${color}; text-decoration-thickness: 2px; text-underline-offset: 2px;">${escapedText}</span>`;
+    result += `<span style="color: ${color}; text-decoration: underline; text-decoration-color: ${color}; text-decoration-thickness: 3px; text-underline-offset: 3px;">${escapedText}</span>`;
     
     lastIndex = elem.end;
   }
@@ -116,48 +200,11 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-export function renderAsCodeMirrorDecorations(code, elements) {
-  if (!elements || elements.length === 0) {
-    return [];
-  }
-
-  const decorations = [];
-  
-  for (const elem of elements) {
-    const color = getColorForType(elem.type);
-    
-    decorations.push({
-      from: elem.start,
-      to: elem.end,
-      type: 'underline',
-      color: color,
-      syntaxType: elem.type,
-      text: elem.text,
-    });
-  }
-  
-  return decorations;
-}
-
-export function applyCodeMirrorDecorations(editorView, code) {
-  if (!editorView || !code) return;
-  
-  const elements = getSyntaxElements(code);
-  const decorations = renderAsCodeMirrorDecorations(code, elements);
-  
-  return decorations;
-}
-
-export function createMiniNotationHighlighter() {
-  return {
-    highlight: (code) => drawMiniNotation(code, 'html'),
-    getDecorations: (code) => {
-      const elements = getSyntaxElements(code);
-      return renderAsCodeMirrorDecorations(code, elements);
-    },
-    getColorForType,
-    COLOR_MAP,
-  };
-}
-
-export default createMiniNotationHighlighter;
+export default {
+  miniNotationHighlightExtension,
+  updateMiniNotationHighlight,
+  toggleMiniNotationHighlight,
+  renderMiniNotationHTML,
+  COLOR_MAP,
+  getColorForType,
+};
