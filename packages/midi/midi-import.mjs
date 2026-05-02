@@ -359,8 +359,9 @@ function generateCCPatterns(controlChanges, options) {
       for (const time of sortedTimes) {
         const eventsAtTime = timeGroups.get(time);
         if (eventsAtTime.length > 0) {
-          const ccv = eventsAtTime[0].value / 127;
-          ccValues.push(Math.round(ccv * 100) / 100);
+          const midiValue = eventsAtTime[0].value;
+          const ccv = midiValue / 127;
+          ccValues.push(Math.round(ccv * 10000) / 10000);
         }
       }
 
