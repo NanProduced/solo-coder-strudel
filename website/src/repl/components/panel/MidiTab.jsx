@@ -5,7 +5,7 @@ This program is free software: you can redistribute it and/or modify it under th
 */
 
 import cx from '@src/cx.mjs';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { Textbox } from '@src/repl/components/panel/SettingsTab';
 import {
   DEFAULT_CC_MAPPING,
@@ -22,9 +22,9 @@ function Checkbox({ label, value, onChange, disabled = false }) {
   );
 }
 
-function FormItem({ label, children, disabled }) {
+function FormItem({ label, children, disabled, className }) {
   return (
-    <div className="grid gap-2 w-full">
+    <div className={cx('grid gap-2 w-full', className)}>
       <label className={cx(disabled && 'opacity-50')}>{label}</label>
       {children}
     </div>
@@ -55,18 +55,19 @@ function TabButton({ label, isSelected, onClick }) {
   );
 }
 
-const DEFAULT_CC_MAPPING_LABELS = {
-  lpf: 'Low Pass Filter (74)',
-  cutoff: 'Cutoff (74)',
-  resonance: 'Resonance (71)',
-  volume: 'Volume (7)',
-  pan: 'Pan (10)',
-  expression: 'Expression (11)',
-  modulation: 'Modulation (1)',
-  sustain: 'Sustain (64)',
-  portamento: 'Portamento (65)',
-  reverb: 'Reverb (91)',
-  chorus: 'Chorus (93)',
+const CC_MAPPING_LABELS = {
+  lpf: { label: 'Low Pass Filter', defaultCC: 74, defaultMin: 0, defaultMax: 20000, defaultExp: 1 },
+  cutoff: { label: 'Cutoff', defaultCC: 74, defaultMin: 0, defaultMax: 20000, defaultExp: 1 },
+  resonance: { label: 'Resonance', defaultCC: 71, defaultMin: 0, defaultMax: 1, defaultExp: 1 },
+  lpq: { label: 'LPQ', defaultCC: 71, defaultMin: 0, defaultMax: 1, defaultExp: 1 },
+  volume: { label: 'Volume', defaultCC: 7, defaultMin: 0, defaultMax: 1, defaultExp: 1 },
+  pan: { label: 'Pan', defaultCC: 10, defaultMin: 0, defaultMax: 1, defaultExp: 1 },
+  expression: { label: 'Expression', defaultCC: 11, defaultMin: 0, defaultMax: 1, defaultExp: 1 },
+  modulation: { label: 'Modulation', defaultCC: 1, defaultMin: 0, defaultMax: 1, defaultExp: 1 },
+  sustain: { label: 'Sustain', defaultCC: 64, defaultMin: 0, defaultMax: 127, defaultExp: 1 },
+  portamento: { label: 'Portamento', defaultCC: 65, defaultMin: 0, defaultMax: 127, defaultExp: 1 },
+  reverb: { label: 'Reverb', defaultCC: 91, defaultMin: 0, defaultMax: 127, defaultExp: 1 },
+  chorus: { label: 'Chorus', defaultCC: 93, defaultMin: 0, defaultMax: 127, defaultExp: 1 },
 };
 
 const QUANTIZATION_OPTIONS = [
@@ -85,14 +86,166 @@ const GROUP_BY_OPTIONS = [
   { value: 'sound', label: 'By Sound Name' },
 ];
 
-function getDefaultCCMappingKeys() {
+function getDefaultCCMapping() {
   const result = {};
-  for (const key of Object.keys(DEFAULT_CC_MAPPING)) {
-    if (DEFAULT_CC_MAPPING_LABELS[key]) {
-      result[key] = true;
-    }
+  for (const [key, config] of Object.entries(CC_MAPPING_LABELS)) {
+    result[key] = {
+      enabled: true,
+      ccn: config.defaultCC,
+      min: config.defaultMin,
+      max: config.defaultMax,
+      exp: config.defaultExp,
+    };
   }
   return result;
+}
+
+function CCMappingEditor({ mappings, onChange, disabled }) {
+  const [editingKey, setEditingKey] = useState(null);
+
+  const updateMapping = (key, field, value) => {
+    const newMappings = { ...mappings };
+    if (!newMappings[key]) {
+      newMappings[key] = { ...CC_MAPPING_LABELS[key], enabled: true };
+    }
+    newMappings[key] = { ...newMappings[key], [field]: value };
+    onChange(newMappings);
+  };
+
+  const toggleEnabled = (key) => {
+    const newMappings = { ...mappings };
+    if (!newMappings[key]) {
+      newMappings[key] = { ...CC_MAPPING_LABELS[key], enabled: true };
+    }
+    newMappings[key] = { ...newMappings[key], enabled: !newMappings[key].enabled };
+    onChange(newMappings);
+  };
+
+  const resetToDefault = (key) => {
+    const config = CC_MAPPING_LABELS[key];
+    if (config) {
+      const newMappings = { ...mappings };
+      newMappings[key] = {
+        enabled: true,
+        ccn: config.defaultCC,
+        min: config.defaultMin,
+        max: config.defaultMax,
+        exp: config.defaultExp,
+      };
+      onChange(newMappings);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {Object.entries(CC_MAPPING_LABELS).map(([key, labelConfig]) => {
+        const mapping = mappings[key] || {
+          enabled: false,
+          ccn: labelConfig.defaultCC,
+          min: labelConfig.defaultMin,
+          max: labelConfig.defaultMax,
+          exp: labelConfig.defaultExp,
+        };
+        const isEditing = editingKey === key;
+
+        return (
+          <div
+            key={key}
+            className={cx(
+              'p-2 rounded border transition-all',
+              mapping.enabled ? 'border-foreground/30 bg-lineHighlight/30' : 'border-muted bg-background'
+            )}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <Checkbox
+                label={labelConfig.label}
+                value={mapping.enabled}
+                disabled={disabled}
+                onChange={() => toggleEnabled(key)}
+              />
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setEditingKey(isEditing ? null : key)}
+                  className={cx(
+                    'text-xs px-2 py-0.5 rounded',
+                    isEditing
+                      ? 'bg-foreground text-background'
+                      : 'bg-muted text-foreground hover:bg-muted/80'
+                  )}
+                  disabled={disabled}
+                >
+                  {isEditing ? 'Done' : 'Edit'}
+                </button>
+                <button
+                  onClick={() => resetToDefault(key)}
+                  className="text-xs px-2 py-0.5 rounded bg-muted text-foreground hover:bg-muted/80"
+                  disabled={disabled}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            <div className="text-xs text-muted mb-1">
+              CC {mapping.ccn} | Range: {mapping.min} - {mapping.max}
+              {mapping.exp !== 1 && ` | Exp: ${mapping.exp}`}
+            </div>
+
+            {isEditing && (
+              <div className="grid grid-cols-4 gap-2 mt-2 pt-2 border-t border-muted">
+                <div>
+                  <label className="text-xs text-muted block mb-1">CC #</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={127}
+                    value={mapping.ccn}
+                    onChange={(e) => updateMapping(key, 'ccn', parseInt(e.target.value) || 0)}
+                    disabled={disabled}
+                    className="w-full bg-background border border-muted rounded px-2 py-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted block mb-1">Min</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={mapping.min}
+                    onChange={(e) => updateMapping(key, 'min', parseFloat(e.target.value) || 0)}
+                    disabled={disabled}
+                    className="w-full bg-background border border-muted rounded px-2 py-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted block mb-1">Max</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={mapping.max}
+                    onChange={(e) => updateMapping(key, 'max', parseFloat(e.target.value) || 1)}
+                    disabled={disabled}
+                    className="w-full bg-background border border-muted rounded px-2 py-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted block mb-1">Exp</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.01"
+                    value={mapping.exp}
+                    onChange={(e) => updateMapping(key, 'exp', parseFloat(e.target.value) || 1)}
+                    disabled={disabled}
+                    className="w-full bg-background border border-muted rounded px-2 py-1 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function MidiTab({ context }) {
@@ -114,7 +267,7 @@ export default function MidiTab({ context }) {
     separateTracks: true,
     groupBy: 'auto',
     includeCC: true,
-    ccMappingKeys: getDefaultCCMappingKeys(),
+    ccMappings: getDefaultCCMapping(),
   });
 
   const [importOptions, setImportOptions] = useState({
@@ -143,9 +296,14 @@ export default function MidiTab({ context }) {
       const filename = exportOptions.filename || `strudel_${Date.now()}.mid`;
 
       const ccMapping = {};
-      for (const [key, enabled] of Object.entries(exportOptions.ccMappingKeys)) {
-        if (enabled && DEFAULT_CC_MAPPING[key]) {
-          ccMapping[key] = DEFAULT_CC_MAPPING[key];
+      for (const [key, mapping] of Object.entries(exportOptions.ccMappings)) {
+        if (mapping.enabled) {
+          ccMapping[key] = {
+            ccn: mapping.ccn,
+            min: mapping.min,
+            max: mapping.max,
+            exp: mapping.exp,
+          };
         }
       }
 
@@ -217,11 +375,8 @@ export default function MidiTab({ context }) {
     setExportOptions((prev) => ({ ...prev, [key]: value }));
   };
 
-  const updateCCMappingKey = (key, enabled) => {
-    setExportOptions((prev) => ({
-      ...prev,
-      ccMappingKeys: { ...prev.ccMappingKeys, [key]: enabled },
-    }));
+  const updateCCMappings = (newMappings) => {
+    setExportOptions((prev) => ({ ...prev, ccMappings: newMappings }));
   };
 
   const updateImportOption = (key, value) => {
@@ -330,8 +485,8 @@ export default function MidiTab({ context }) {
                 ))}
               </select>
               <p className="text-muted text-xs mt-1">
-                Auto: Separate by MIDI channel if set, otherwise by sound name, otherwise single track.
-                Using different .s() or .midichan() will create separate tracks.
+                Auto: Separate by MIDI channel if set (.midichan()), otherwise by sound name (.s()), otherwise single track.
+                Different voices in stack() with different .s() or .midichan() will be in separate tracks.
               </p>
             </FormItem>
 
@@ -344,35 +499,31 @@ export default function MidiTab({ context }) {
               />
             </div>
 
-            <SectionHeader>CC Mapping</SectionHeader>
-            <p className="text-muted text-sm mb-2">
-              Map Strudel control names to MIDI CC numbers with proper range normalization.
-              Values are automatically scaled based on control type.
-            </p>
-            <p className="text-muted text-xs mb-2">
-              <strong>Note:</strong> For lpf/cutoff, values 0-20000Hz are normalized to CC 0-127.
-              For resonance, values 0-1 are mapped directly.
-            </p>
+            {exportOptions.includeCC && (
+              <>
+                <SectionHeader>CC Mapping Configuration</SectionHeader>
+                <p className="text-muted text-sm mb-2">
+                  Map Strudel control names to MIDI CC numbers with custom range normalization.
+                  Click "Edit" to customize CC number, min/max range, and exponent curve.
+                </p>
 
-            <div className="grid grid-cols-2 gap-2">
-              {Object.entries(DEFAULT_CC_MAPPING_LABELS).map(([control, label]) => (
-                <div key={control} className="flex items-center gap-2">
-                  <Checkbox
-                    label={label}
-                    value={exportOptions.ccMappingKeys[control] || false}
-                    disabled={exporting || !exportOptions.includeCC}
-                    onChange={(e) => updateCCMappingKey(control, e.target.checked)}
+                <div className="bg-lineHighlight/50 p-3 rounded text-xs space-y-1 mb-3">
+                  <p className="font-medium text-foreground">CC Export Examples:</p>
+                  <p>• <code className="text-muted">.ccn(1).ccv(0.5)</code> → CC 1, value 64 (0.5 * 127)</p>
+                  <p>• <code className="text-muted">.lpf(10000)</code> → CC 74, value 64 (10000/20000 = 0.5)</p>
+                  <p>• <code className="text-muted">.resonance(0.5)</code> → CC 71, value 64 (0.5 * 127)</p>
+                  <p>• <code className="text-muted">.midimap('mymap')</code> → Use custom mapping with min/max/exp</p>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto pr-2">
+                  <CCMappingEditor
+                    mappings={exportOptions.ccMappings}
+                    onChange={updateCCMappings}
+                    disabled={exporting}
                   />
                 </div>
-              ))}
-            </div>
-
-            <div className="bg-lineHighlight/50 p-3 rounded text-xs space-y-1">
-              <p className="font-medium text-foreground">CC Export Tips:</p>
-              <p>• <code className="text-muted">.ccn(74).ccv(0.5)</code> - Direct CC (ccv should be 0-1)</p>
-              <p>• <code className="text-muted">.lpf(4000)</code> - Mapped to CC 74 (0-20000 Hz range)</p>
-              <p>• <code className="text-muted">.midimap('mymap')</code> - Use custom mapping with min/max/exp</p>
-            </div>
+              </>
+            )}
 
             <button
               className={cx(
@@ -506,6 +657,13 @@ export default function MidiTab({ context }) {
                   <pre className="text-xs overflow-x-auto whitespace-pre-wrap max-h-60">
                     {importResult.strudelCode.code}
                   </pre>
+                </div>
+
+                <div className="bg-lineHighlight/50 p-3 rounded text-xs space-y-1">
+                  <p className="font-medium text-foreground">Import Notes:</p>
+                  <p>• CC values are converted from MIDI 0-127 to 0-1 range for .ccv()</p>
+                  <p>• Example: CC 64 → .ccv(0.5039) (4 decimal places for precision)</p>
+                  <p>• Re-exporting should preserve the original CC values</p>
                 </div>
 
                 <button
