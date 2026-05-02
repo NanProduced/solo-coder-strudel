@@ -6,6 +6,7 @@ import '../../Repl.css';
 import { useLogger } from '../useLogger';
 import { ConsoleTab } from './ConsoleTab';
 import ExportTab from './ExportTab';
+import MidiTab from './MidiTab';
 import { FilesTab } from './FilesTab';
 import { PatternsTab } from './PatternsTab';
 import { Reference } from './Reference';
@@ -235,6 +236,7 @@ const tabNames = {
   sounds: 'sounds',
   reference: 'reference',
   export: 'export',
+  midi: 'midi',
   console: 'console',
   settings: 'settings',
 };
@@ -273,6 +275,8 @@ function PanelContent({ context, tab }) {
       return <Reference />;
     case tabNames.export:
       return <ExportTab handleExport={context.handleExport} />;
+    case tabNames.midi:
+      return <MidiTab context={context} />;
     case tabNames.settings:
       return <SettingsTab started={context.started} />;
     case tabNames.files:
