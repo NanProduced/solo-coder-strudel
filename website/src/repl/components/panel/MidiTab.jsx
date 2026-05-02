@@ -79,6 +79,22 @@ const QUANTIZATION_OPTIONS = [
   { value: 4, label: '1 bar' },
 ];
 
+const GROUP_BY_OPTIONS = [
+  { value: 'auto', label: 'Auto (Channel → Sound → Single)' },
+  { value: 'midichan', label: 'By MIDI Channel' },
+  { value: 'sound', label: 'By Sound Name' },
+];
+
+function getDefaultCCMappingKeys() {
+  const result = {};
+  for (const key of Object.keys(DEFAULT_CC_MAPPING)) {
+    if (DEFAULT_CC_MAPPING_LABELS[key]) {
+      result[key] = true;
+    }
+  }
+  return result;
+}
+
 export default function MidiTab({ context }) {
   const [activeTab, setActiveTab] = useState('export');
   const [exporting, setExporting] = useState(false);
@@ -96,8 +112,9 @@ export default function MidiTab({ context }) {
     quantization: 0,
     defaultVelocity: 0.9,
     separateTracks: true,
+    groupBy: 'auto',
     includeCC: true,
-    ccMapping: { ...DEFAULT_CC_MAPPING },
+    ccMappingKeys: getDefaultCCMappingKeys(),
   });
 
   const [importOptions, setImportOptions] = useState({
@@ -125,6 +142,13 @@ export default function MidiTab({ context }) {
 
       const filename = exportOptions.filename || `strudel_${Date.now()}.mid`;
 
+      const ccMapping = {};
+      for (const [key, enabled] of Object.entries(exportOptions.ccMappingKeys)) {
+        if (enabled && DEFAULT_CC_MAPPING[key]) {
+          ccMapping[key] = DEFAULT_CC_MAPPING[key];
+        }
+      }
+
       const options = {
         startCycle: exportOptions.startCycle,
         endCycle: exportOptions.endCycle,
@@ -133,7 +157,8 @@ export default function MidiTab({ context }) {
         quantization: exportOptions.quantization,
         defaultVelocity: exportOptions.defaultVelocity,
         separateTracks: exportOptions.separateTracks,
-        ccMapping: exportOptions.includeCC ? exportOptions.ccMapping : {},
+        groupBy: exportOptions.groupBy,
+        ccMapping: exportOptions.includeCC ? ccMapping : {},
       };
 
       downloadPatternToMidiFile(pattern, filename, options);
@@ -190,6 +215,13 @@ export default function MidiTab({ context }) {
 
   const updateExportOption = (key, value) => {
     setExportOptions((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateCCMappingKey = (key, enabled) => {
+    setExportOptions((prev) => ({
+      ...prev,
+      ccMappingKeys: { ...prev.ccMappingKeys, [key]: enabled },
+    }));
   };
 
   const updateImportOption = (key, value) => {
@@ -284,6 +316,25 @@ export default function MidiTab({ context }) {
               </select>
             </FormItem>
 
+            <FormItem label="Track Grouping" disabled={exporting}>
+              <select
+                disabled={exporting}
+                value={exportOptions.groupBy}
+                onChange={(e) => updateExportOption('groupBy', e.target.value)}
+                className="bg-background text-foreground border border-muted rounded p-2 w-full"
+              >
+                {GROUP_BY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-muted text-xs mt-1">
+                Auto: Separate by MIDI channel if set, otherwise by sound name, otherwise single track.
+                Using different .s() or .midichan() will create separate tracks.
+              </p>
+            </FormItem>
+
             <div className="space-y-2">
               <Checkbox
                 label="Export CC events"
@@ -291,17 +342,16 @@ export default function MidiTab({ context }) {
                 disabled={exporting}
                 onChange={(e) => updateExportOption('includeCC', e.target.checked)}
               />
-              <Checkbox
-                label="Separate tracks by MIDI channel"
-                value={exportOptions.separateTracks}
-                disabled={exporting}
-                onChange={(e) => updateExportOption('separateTracks', e.target.checked)}
-              />
             </div>
 
             <SectionHeader>CC Mapping</SectionHeader>
             <p className="text-muted text-sm mb-2">
-              Map Strudel control names to MIDI CC numbers. These controls will be exported as CC events.
+              Map Strudel control names to MIDI CC numbers with proper range normalization.
+              Values are automatically scaled based on control type.
+            </p>
+            <p className="text-muted text-xs mb-2">
+              <strong>Note:</strong> For lpf/cutoff, values 0-20000Hz are normalized to CC 0-127.
+              For resonance, values 0-1 are mapped directly.
             </p>
 
             <div className="grid grid-cols-2 gap-2">
@@ -309,22 +359,19 @@ export default function MidiTab({ context }) {
                 <div key={control} className="flex items-center gap-2">
                   <Checkbox
                     label={label}
-                    value={exportOptions.ccMapping[control] !== undefined}
+                    value={exportOptions.ccMappingKeys[control] || false}
                     disabled={exporting || !exportOptions.includeCC}
-                    onChange={(e) => {
-                      setExportOptions((prev) => {
-                        const newMapping = { ...prev.ccMapping };
-                        if (e.target.checked) {
-                          newMapping[control] = DEFAULT_CC_MAPPING[control];
-                        } else {
-                          delete newMapping[control];
-                        }
-                        return { ...prev, ccMapping: newMapping };
-                      });
-                    }}
+                    onChange={(e) => updateCCMappingKey(control, e.target.checked)}
                   />
                 </div>
               ))}
+            </div>
+
+            <div className="bg-lineHighlight/50 p-3 rounded text-xs space-y-1">
+              <p className="font-medium text-foreground">CC Export Tips:</p>
+              <p>• <code className="text-muted">.ccn(74).ccv(0.5)</code> - Direct CC (ccv should be 0-1)</p>
+              <p>• <code className="text-muted">.lpf(4000)</code> - Mapped to CC 74 (0-20000 Hz range)</p>
+              <p>• <code className="text-muted">.midimap('mymap')</code> - Use custom mapping with min/max/exp</p>
             </div>
 
             <button
